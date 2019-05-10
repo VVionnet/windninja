@@ -39,7 +39,8 @@ static cusparseHandle_t sparseHandle = 0;
 void * ninja_matrix_malloc(size_t n) {
 #if defined(NINJA_CUDA_BLAS)
     void *p;
-    CUDA_MALLOC(p, n);
+    CUDA_MALLOC(&p, n);
+    return p;
 #else
     return malloc(n);
 #endif
@@ -48,10 +49,24 @@ void * ninja_matrix_malloc(size_t n) {
 void * ninja_matrix_finalize(void *p, size_t n) {
 #if defined(NINJA_CUDA_BLAS)
     void *dst;
-    cublasGetVector(n, CUDA_SIZE, p, 1, dst, 1);
+    dst = malloc(CUDA_SIZE * n);
+    cudaMemcpy(dst, p, CUDA_SIZE * n, cudaMemcpyDeviceToHost);
+    CUDA_FREE(p);
     return dst;
 #else
     return p;
+#endif
+}
+
+void ninja_matrix_free(void *p) {
+    free(p);
+}
+
+void ninja_matrix_memset(void *p, int c, size_t n) {
+#if defined(NINJA_CUDA_BLAS)
+    cudaMemset(p, c, n);
+#else
+    memset(p, c, n);
 #endif
 }
 
@@ -65,14 +80,8 @@ void ninja_blas_dscal(const int N, const double alpha, double *X, const int incX
         stat = cublasCreate(&blasHandle);
         assert(stat == CUBLAS_STATUS_SUCCESS);
     }
-    double *dx;
-    CUDA_MALLOC((void**)&dx, CUDA_SIZE * N);
-    cublasSetVector(N, CUDA_SIZE, X, 1, dx, 1);
-
-    stat = cublasDscal(blasHandle, N, &alpha, dx, 1);
+    stat = cublasDscal(blasHandle, N, &alpha, X, 1);
     assert(stat == CUBLAS_STATUS_SUCCESS);
-    cublasGetVector(N, CUDA_SIZE, dx, 1, X, 1);
-    CUDA_FREE(dx);
 #else
      int i, ix;
      ix = OFFSET(N, incX);
@@ -102,17 +111,9 @@ double ninja_blas_ddot(const int N, const double *X, const int incX, const doubl
         stat = cublasCreate(&blasHandle);
         assert(stat == CUBLAS_STATUS_SUCCESS);
     }
-    double *dx, *dy;
-    CUDA_MALLOC((void**)&dx, CUDA_SIZE * N);
-    CUDA_MALLOC((void**)&dy, CUDA_SIZE * N);
-    cublasSetVector(N, CUDA_SIZE, X, 1, dx, 1);
-    cublasSetVector(N, CUDA_SIZE, Y, 1, dy, 1);
-
     double dp;
-    stat = cublasDdot(blasHandle, N, dx, 1, dy, 1, &dp);
+    stat = cublasDdot(blasHandle, N, X, 1, Y, 1, &dp);
     assert(stat == CUBLAS_STATUS_SUCCESS);
-    CUDA_FREE(dx);
-    CUDA_FREE(dy);
     return dp;
 #else
     double val=0.0;
@@ -140,18 +141,8 @@ void ninja_blas_daxpy(const int N, const double alpha, const double *X,
         stat = cublasCreate(&blasHandle);
         assert(stat == CUBLAS_STATUS_SUCCESS);
     }
-    double *dx, *dy;
-    CUDA_MALLOC((void**)&dx, CUDA_SIZE * N);
-    CUDA_MALLOC((void**)&dy, CUDA_SIZE * N);
-    cublasSetVector(N, CUDA_SIZE, X, 1, dx, 1);
-    cublasSetVector(N, CUDA_SIZE, Y, 1, dy, 1);
-
-    stat = cublasDaxpy(blasHandle, N, &alpha, dx, 1, dy, 1);
+    stat = cublasDaxpy(blasHandle, N, &alpha, X, 1, Y, 1);
     assert(stat == CUBLAS_STATUS_SUCCESS);
-    cublasGetVector(N, CUDA_SIZE, dy, 1, Y, 1);
-    CUDA_FREE(dx);
-    CUDA_FREE(dy);
-    //cublasDestroy(blasHandle);
 #else
     int i;
     #pragma omp parallel for
@@ -171,14 +162,9 @@ double ninja_blas_dnrm2(const int N, const double *X, const int incX) {
         stat = cublasCreate(&blasHandle);
         assert(stat == CUBLAS_STATUS_SUCCESS);
     }
-    double *dx;
-    CUDA_MALLOC((void**)&dx, CUDA_SIZE * N);
-    cublasSetVector(N, CUDA_SIZE, X, 1, dx, 1);
-
     double norm;
-    stat = cublasDnrm2(blasHandle, N, dx, 1, &norm);
+    stat = cublasDnrm2(blasHandle, N, X, 1, &norm);
     assert(stat == CUBLAS_STATUS_SUCCESS);
-    CUDA_FREE(dx);
     return norm;
 #else
     double val=0.0;
@@ -191,23 +177,80 @@ double ninja_blas_dnrm2(const int N, const double *X, const int incX) {
 #endif
 }
 
-void ninja_dcsrmv(char *transa, int *m, int *k, double *alpha, char *matdescra, double *val, int *indx, int *pntrb, int *pntre, double *x, double *beta, double *y) {
+void ninja_blas_sub(const int N, double *R, const int incR, const double *b, const int incB) {
+    int i = 0;
+    for(i = 0; i < N; i++) {
+      R[i] = b[i] - R[i];
+    }
+}
+
+void ninja_dcsrmv(char *transa, int *m, int *k, double *alpha, char *matdescra,
+        double *val, int *indx, int *pntrb, int *pntre, double *x, double *beta, double *y) {
 #if defined(NINJA_OPEN_BLAS)
-#elif defined(NINJA_CUDA_BLAS) && defined(_NOT_DEFINED) // Not implemented
+#elif defined(NINJA_CUDA_BLAS) && defined(_NOT_)
     cusparseStatus_t stat;
     if(!sparseHandle) {
         stat = cusparseCreate(&sparseHandle);
         assert(stat == CUSPARSE_STATUS_SUCCESS);
     }
-    /*
-    cusparseDcsrmv(cusparseHandle_t handle, cusparseOperation_t transA, 
-        int m, int n, int nnz, const double          *alpha, 
-        const cusparseMatDescr_t descrA, 
-        const double          *csrValA, 
-        const int *csrRowPtrA, const int *csrColIndA,
-        const double          *x, const double          *beta, 
-        double          *y)
-    */
+    int N = *m;
+    int nnz = pntre[N-1] - pntrb[0];
+    // malloc on device: csrValA, csrRowPtrA, csrColIndA, x, beta, y
+    double *dcsrValA, *dcsrRowPtrA, *dcsrColIndA, *dx, *dy;
+    stat = CUDA_MALLOC((void**)&dcsrValA, CUDA_SIZE * nnz);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = CUDA_MALLOC((void**)&dcsrRowPtrA, CUDA_SIZE * (N + 1));
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = CUDA_MALLOC((void**)&dcsrColIndA, CUDA_SIZE * nnz);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = CUDA_MALLOC((void**)&dx, CUDA_SIZE * N);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = CUDA_MALLOC((void**)&dy, CUDA_SIZE * N);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+
+
+    stat = cudaMemcpy(dcsrValA, val, CUDA_SIZE * nnz, cudaMemcpyHostToDevice);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cudaMemcpy(dcsrRowPtrA, pntrb, CUDA_SIZE * (N + 1), cudaMemcpyHostToDevice);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cudaMemcpy(dcsrColIndA, indx, CUDA_SIZE * nnz, cudaMemcpyHostToDevice);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cudaMemcpy(dx, x, CUDA_SIZE * N, cudaMemcpyHostToDevice);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cudaMemcpy(dy, y, CUDA_SIZE * N, cudaMemcpyHostToDevice);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+
+    cusparseMatDescr_t descrA;
+    stat = cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_SYMMETRIC);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ZERO);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cusparseSetMatFillMode(descrA, CUSPARSE_FILL_MODE_UPPER);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+    stat = cusparseSetMatDiagType(descrA, CUSPARSE_DIAG_TYPE_UNIT);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+
+    stat = cusparseDcsrmv(sparseHandle,
+            CUSPARSE_OPERATION_NON_TRANSPOSE,
+            *m,
+            *k,
+            nnz,
+            alpha,
+            descrA,
+            val,
+            pntrb,
+            pntre,
+            x,
+            beta,
+            y);
+    printf("%d\n", stat);
+    assert(stat == CUSPARSE_STATUS_SUCCESS);
+
+    CUDA_FREE(dcsrValA);
+    CUDA_FREE(dcsrRowPtrA);
+    CUDA_FREE(dcsrColIndA);
+    CUDA_FREE(dx);
+    CUDA_FREE(dy);
 #else
     int i,j,N;
     N=*m;
@@ -219,7 +262,7 @@ void ninja_dcsrmv(char *transa, int *m, int *k, double *alpha, char *matdescra, 
         }
         #pragma omp for
         for(i=0;i<N;i++) {
-            y[i] += val[pntrb[i]]*x[i];	// diagonal
+            y[i] += val[pntrb[i]]*x[i];    // diagonal
             for(j=pntrb[i]+1;j<pntre[i];j++)
             {
                 y[i] += val[j]*x[indx[j]];
@@ -234,3 +277,50 @@ void ninja_dcsrmv(char *transa, int *m, int *k, double *alpha, char *matdescra, 
     }
 #endif
 }
+
+void ninja_dcsrsv(char *transa, int *m, double *alpha, char *matdescra, double *val, int *indx, int *pntrb, int *pntre, double *x, double *y) {
+    // My version of the mkl_dcsrsv() function; solves val*y=x
+    // Only works for my specific settings
+    //        Case 1:
+    //            transa='t';            //solve using transpose y := alpha*inv(A')*x
+    //            matdescra[0]='t';    //triangular
+    //            matdescra[1]='u';    //upper triangle
+    //            matdescra[2]='u';    //unit diagonal
+    //            matdescra[3]='c';    //zero based indexing
+    //        Case 2:
+    //            transa='n';            //solve using regular matrix (not transpose) y := alpha*inv(A)*x
+    //            matdescra[0]='t';    //triangular
+    //            matdescra[1]='u';    //upper triangle
+    //            matdescra[2]='n';    //not unit diagonal
+    //            matdescra[3]='c';    //zero based indexing
+    int i, j;
+
+    //Case 1:
+    if(*transa=='t' && matdescra[0]=='t' && matdescra[1]=='u' && matdescra[2]=='u' && matdescra[3]=='c')
+    {
+        for(i=0; i<*m; i++)
+            y[i] = x[i];
+        for(i=0; i<*m; i++)
+        {
+                            // normally would have x[i]/diagonal of val[i,i] here, but val[i,i] is unit (=1)
+            for(j=pntrb[i]; j<pntre[i]; j++)
+            {
+                y[indx[j]] -=  y[i]*val[j];
+            }
+        }
+    //Case 2:
+    }else if(*transa=='n' && matdescra[0]=='t' && matdescra[1]=='u' && matdescra[2]=='n' && matdescra[3]=='c')
+    {
+        for(i=*m-1; i>=0; i--)    //loop up rows
+            y[i] = x[i];
+        y[*m-1] /= val[pntrb[*m-1]];
+        for(i=*m-2; i>=0; i--)    //loop up rows
+        {
+            for(j=pntrb[i]+1; j<pntre[i]; j++)    //don't include diagonal in loop
+                y[i] -= val[j]*y[indx[j]];
+            y[i] /= val[pntrb[i]];
+        }
+    }
+}
+
+

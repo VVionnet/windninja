@@ -214,56 +214,11 @@ bool Preconditioner::solve(double *r, double *z, int *row_ptr, int *col_ind)
 }
 
 void Preconditioner::mkl_dcsrsv(char *transa, int *m, double *alpha, char *matdescra, double *val, int *indx, int *pntrb, int *pntre, double *x, double *y)
-{	// My version of the mkl_dcsrsv() function; solves val*y=x
-	// Only works for my specific settings
-	//		Case 1:
-	//			transa='t';			//solve using transpose y := alpha*inv(A')*x
-	//			matdescra[0]='t';	//triangular
-	//			matdescra[1]='u';	//upper triangle
-	//			matdescra[2]='u';	//unit diagonal
-	//			matdescra[3]='c';	//zero based indexing
-	//		Case 2:
-	//			transa='n';			//solve using regular matrix (not transpose) y := alpha*inv(A)*x
-	//			matdescra[0]='t';	//triangular
-	//			matdescra[1]='u';	//upper triangle
-	//			matdescra[2]='n';	//not unit diagonal
-	//			matdescra[3]='c';	//zero based indexing
-	int i, j;
-
-	//Case 1:
-	if(*transa=='t' && matdescra[0]=='t' && matdescra[1]=='u' && matdescra[2]=='u' && matdescra[3]=='c')
-	{
-		for(i=0; i<*m; i++)
-			y[i] = x[i];
-		for(i=0; i<*m; i++)
-		{
-							// normally would have x[i]/diagonal of val[i,i] here, but val[i,i] is unit (=1)
-			for(j=pntrb[i]; j<pntre[i]; j++)
-			{
-				y[indx[j]] -=  y[i]*val[j];
-			}
-		}
-	//Case 2:
-	}else if(*transa=='n' && matdescra[0]=='t' && matdescra[1]=='u' && matdescra[2]=='n' && matdescra[3]=='c')
-	{
-		for(i=*m-1; i>=0; i--)	//loop up rows
-			y[i] = x[i];
-		y[*m-1] /= val[pntrb[*m-1]];
-		for(i=*m-2; i>=0; i--)	//loop up rows
-		{
-			for(j=pntrb[i]+1; j<pntre[i]; j++)	//don't include diagonal in loop
-				y[i] -= val[j]*y[indx[j]];
-			y[i] /= val[pntrb[i]];
-		}
-
-
-	}else
-		throw std::logic_error("ERROR IN PRECONDITIONER: TRIANGULAR SOLVER FAILED");
+{
+    ninja_dcsrsv(transa, m, alpha, matdescra, val, indx, pntrb, pntre, x, y);
 }
 
 void Preconditioner::cblas_dcopy(const int N, const double *X, const int incX, double *Y, const int incY)
-{	// My version of cblas_dcopy, only works for incX==1 and incY==1
-	int i;
-	for(i=0; i<N; i++)
-		Y[i] = X[i];
+{
+    ninja_blas_dcopy(N, X, incX, Y, incX);
 }

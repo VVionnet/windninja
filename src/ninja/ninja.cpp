@@ -662,10 +662,17 @@ bool ninja::solve(double *A, double *b, double *x, int *row_ptr, int *col_ind, i
     fprintf(convergence_history,"\nIteration\tResidual\tResidual_check");
 #endif //NINJA_DEBUG_VERBOSE
 
+    /*
     p=new double[NUMNP];
     z=new double[NUMNP];
     q=new double[NUMNP];
     r=new double[NUMNP];
+    */
+    p = (double*)ninja_matrix_malloc(sizeof(double) * NUMNP);
+    z = (double*)ninja_matrix_malloc(sizeof(double) * NUMNP);
+    q = (double*)ninja_matrix_malloc(sizeof(double) * NUMNP);
+    r = (double*)ninja_matrix_malloc(sizeof(double) * NUMNP);
+
     //Ax=new double[NUMNP];
     //Ap=new double[NUMNP];
     //Anorm=new double[NUMNP];
@@ -675,9 +682,12 @@ bool ninja::solve(double *A, double *b, double *x, int *row_ptr, int *col_ind, i
     //matrix vector multiplication A*x=Ax
     mkl_dcsrmv(&transa, &NUMNP, &NUMNP, &one, matdescra, A, col_ind, row_ptr, &row_ptr[1], x, &zero, r);
 
+    ninja_blas_sub(NUMNP, r, 1, b, 1);
+    /*
     for(i=0;i<NUMNP;i++){
         r[i]=b[i]-r[i];                  //calculate the initial residual
     }
+    */
 
     normb = cblas_dnrm2(NUMNP, b, 1);		//calculate the 2-norm of b
     //normb = nrm2(NUMNP, b);
@@ -778,6 +788,15 @@ bool ninja::solve(double *A, double *b, double *x, int *row_ptr, int *col_ind, i
 
     }	//end iterations--------------------------------------------------------------------------------------------
 
+    p = (double*)ninja_matrix_finalize(p, NUMNP);
+    ninja_matrix_free(p);
+    z = (double*)ninja_matrix_finalize(z, NUMNP);
+    ninja_matrix_free(z);
+    q = (double*)ninja_matrix_finalize(q, NUMNP);
+    ninja_matrix_free(q);
+    r = (double*)ninja_matrix_finalize(r, NUMNP);
+    ninja_matrix_free(r);
+    /*
     if(p)
     {
         delete[] p;
@@ -798,6 +817,7 @@ bool ninja::solve(double *A, double *b, double *x, int *row_ptr, int *col_ind, i
         delete[] r;
         r=NULL;
     }
+    */
 
 #ifdef NINJA_DEBUG_VERBOSE
     fclose(convergence_history);
@@ -829,6 +849,7 @@ bool ninja::solveMinres(double *A, double *b, double *x, int *row_ptr, int *col_
 
   n = NUMNP;
 
+  /*
   R = new double[n];
   Z = new double[n];
   U = new double[n];
@@ -838,6 +859,17 @@ bool ninja::solveMinres(double *A, double *b, double *x, int *row_ptr, int *col_
   VOLD = new double[n];
   WOLD = new double[n];
   WOOLD = new double[n];
+  */
+
+  R = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  Z = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  U = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  V = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  W = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  UOLD = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  VOLD = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  WOLD = (double*)ninja_matrix_malloc(sizeof(double) * n);
+  WOOLD = (double*)ninja_matrix_malloc(sizeof(double) * n);
 
   //stuff for sparse BLAS MV multiplication
   char transa='n';
@@ -881,7 +913,8 @@ bool ninja::solveMinres(double *A, double *b, double *x, int *row_ptr, int *col_
 
   mkl_dcsrmv(&transa, &n, &n, &one, matdescra, A, col_ind, row_ptr, &row_ptr[1], x, &zero, R); // r <- b - A*x
 
-  for(j=0;j<n;j++)	R[j] = b[j] - R[j];
+  //for(j=0;j<n;j++)	R[j] = b[j] - R[j];
+  ninja_blas_sub(n, R, 1, b, 1);
 
   bnorm = cblas_dnrm2(n, b, 1);
 
@@ -1033,6 +1066,26 @@ bool ninja::solveMinres(double *A, double *b, double *x, int *row_ptr, int *col_
 
 	fclose(convergence_history);
 
+    R = (double*)ninja_matrix_finalize(R, n);
+    ninja_matrix_free(R);
+    Z = (double*)ninja_matrix_finalize(Z, n);
+    ninja_matrix_free(Z);
+    U = (double*)ninja_matrix_finalize(U, n);
+    ninja_matrix_free(U);
+    V = (double*)ninja_matrix_finalize(V, n);
+    ninja_matrix_free(V);
+    W = (double*)ninja_matrix_finalize(W, n);
+    ninja_matrix_free(W);
+    UOLD = (double*)ninja_matrix_finalize(UOLD, n);
+    ninja_matrix_free(UOLD);
+    VOLD = (double*)ninja_matrix_finalize(VOLD, n);
+    ninja_matrix_free(VOLD);
+    WOLD = (double*)ninja_matrix_finalize(WOLD, n);
+    ninja_matrix_free(WOLD);
+    WOOLD = (double*)ninja_matrix_finalize(WOOLD, n);
+    ninja_matrix_free(WOOLD);
+
+    /*
   if(R)
 	delete[] R;
   if(Z)
@@ -1051,6 +1104,7 @@ bool ninja::solveMinres(double *A, double *b, double *x, int *row_ptr, int *col_
 	delete[] WOLD;
   if(WOOLD)
 	delete[] WOOLD;
+    */
 
   return true;
 
@@ -1147,45 +1201,8 @@ double ninja::cblas_dnrm2(const int N, const double *X, const int incX)
  * @param y Vector of size m (and k) in the A*x=y computation.
  */
 void ninja::mkl_dcsrmv(char *transa, int *m, int *k, double *alpha, char *matdescra, double *val, int *indx, int *pntrb, int *pntre, double *x, double *beta, double *y)
-{	// My version of MKL's compressed sparse row (CSR) matrix vector product function
-	// MINE ONLY WORKS FOR A SYMMETRICALLY STORED, UPPER TRIANGULAR MATRIX!!!!!!
-	// AND ALPHA==1 AND BETA==0
-
-		//function multiplies a sparse matrix "val" times a vector "x", result is stored in "y"
-		//		ie. Ax = y
-		//"m" and "k" are equal to the number of rows and columns in "A" (must be equal in mine)
-		//"indx" is an array describing the column index of "A" (sometimes called "col_ind")
-		//"pntrb" is a pointer containing indices of "A" of the starting locations of the rows
-		//"pntre" is a pointer containg indices of "A" of the ending locations of the rows
-		int i,j,N;
-		N=*m;
-
-    #pragma omp parallel private(i,j)
-    {
-        #pragma omp for
-        for(i=0;i<N;i++)
-            y[i]=0.0;
-
-        #pragma omp for
-        for(i=0;i<N;i++)
-        {
-            y[i] += val[pntrb[i]]*x[i];	// diagonal
-            for(j=pntrb[i]+1;j<pntre[i];j++)
-            {
-                y[i] += val[j]*x[indx[j]];
-            }
-        }
-    }	//end parallel region
-
-    for(i=0;i<N;i++)
-    {
-        for(j=pntrb[i]+1;j<pntre[i];j++)
-        {
-            {
-                y[indx[j]] += val[j]*x[i];
-            }
-        }
-    }
+{
+    ninja_dcsrmv(transa, m, k, alpha, matdescra, val, indx, pntrb, pntre, x, beta, y);
 }
 
 /**

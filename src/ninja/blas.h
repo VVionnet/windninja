@@ -55,6 +55,10 @@ void * ninja_matrix_malloc(size_t n);
 
 void * ninja_matrix_finalize(void *p, size_t n);
 
+void ninja_matrix_free(void *p);
+
+void ninja_matrix_memset(void *p, int c, size_t n);
+
 void ninja_blas_dscal(const int N, const double alpha, double *X, const int incX);
 
 void ninja_blas_dcopy(const int N, const double *X, const int incX, double *Y, const int incY);
@@ -64,9 +68,14 @@ double ninja_blas_ddot(const int N, const double *X, const int incX, const doubl
 void ninja_blas_daxpy(const int N, const double alpha, const double *X,
         const int incX, double *Y, const int incY);
 
+// Special case for a subtraction method
+void ninja_blas_sub(const int N, double *R, const int incR, const double *b, const int incB);
+
 double ninja_blas_dnrm2(const int N, const double *X, const int incX);
 
 void ninja_dcsrmv(char *transa, int *m, int *k, double *alpha, char *matdescra, double *val, int *indx, int *pntrb, int *pntre, double *x, double *beta, double *y);
+
+void ninja_dcsrsv(char *transa, int *m, double *alpha, char *matdescra, double *val, int *indx, int *pntrb, int *pntre, double *x, double *y);
 
 #ifdef __cplusplus
 }

@@ -40,6 +40,7 @@
 
 #include "ninjaException.h"
 
+#include "blas.h"
 
 #ifdef _OPENMP
 #include <omp.h>
