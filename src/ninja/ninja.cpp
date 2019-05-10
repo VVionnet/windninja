@@ -1065,16 +1065,7 @@ bool ninja::solveMinres(double *A, double *b, double *x, int *row_ptr, int *col_
  */
 void ninja::cblas_dscal(const int N, const double alpha, double *X, const int incX)
 {
-     int i, ix;
-
-     if (incX <= 0) return;
-
-     ix = OFFSET(N, incX);
-
-     for (i = 0; i < N; i++) {
-         X[ix] *= alpha;
-         ix    += incX;
-     }
+    ninja_blas_dscal(N, alpha, X, incX);
 }
 
 /**Copies values from the X vector to the Y vector.
@@ -1087,9 +1078,7 @@ void ninja::cblas_dscal(const int N, const double alpha, double *X, const int in
  */
 void ninja::cblas_dcopy(const int N, const double *X, const int incX, double *Y, const int incY)
 {
-	int i;
-	for(i=0; i<N; i++)
-		Y[i] = X[i];
+    ninja_blas_dcopy(N, X, incX, Y, incY);
 }
 
 /**Performs the dot product X*Y.
@@ -1103,14 +1092,7 @@ void ninja::cblas_dcopy(const int N, const double *X, const int incX, double *Y,
  */
 double ninja::cblas_ddot(const int N, const double *X, const int incX, const double *Y, const int incY)
 {
-	double val=0.0;
-	int i;
-
-	#pragma omp parallel for reduction(+:val)
-	for(i=0;i<N;i++)
-		val += X[i]*Y[i];
-
-	return val;
+    ninja_blas_ddot(N, X, incX, Y, incY);
 }
 
 /**Performs the calculation Y = Y + alpha * X.
@@ -1124,11 +1106,7 @@ double ninja::cblas_ddot(const int N, const double *X, const int incX, const dou
  */
 void ninja::cblas_daxpy(const int N, const double alpha, const double *X, const int incX, double *Y, const int incY)
 {
-	int i;
-
-	#pragma omp parallel for
-	for(i=0; i<N; i++)
-		Y[i] += alpha*X[i];
+    ninja_blas_daxpy(N, alpha, X, incX, Y, incY);
 }
 
 /**Computes the 2-norm of X.
@@ -1140,15 +1118,7 @@ void ninja::cblas_daxpy(const int N, const double alpha, const double *X, const 
  */
 double ninja::cblas_dnrm2(const int N, const double *X, const int incX)
 {
-	double val=0.0;
-	int i;
-
-	//#pragma omp parallel for reduction(+:val)
-	for(i=0;i<N;i++)
-		val += X[i]*X[i];
-	val = std::sqrt(val);
-
-	return val;
+    ninja_blas_dnrm2(N, X, incX);
 }
 
 /**

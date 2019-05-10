@@ -25,6 +25,7 @@ set(NINJA_INCLUDES ${NETCDF_INCLUDES}
 
 set(NINJA_SOURCES air.cpp
                   Aspect.cpp
+                  blas.c
                   cellDiurnal.cpp
                   cli.cpp
                   dbfopen.cpp
@@ -137,7 +138,7 @@ else(WIN32)
     add_library(ninja STATIC SHARED ${NINJA_SOURCES})
 endif(WIN32)
 
-target_link_libraries(ninja ${LINK_LIBS})
+target_link_libraries(ninja ${LINK_LIBS} -lcublas -lcusparse -lopenblas -lcudart)
 
 install(TARGETS ninja DESTINATION lib COMPONENT libs)
 install(FILES WindNinjaInputs.h ninja.h windninja.h DESTINATION include COMPONENT includes)

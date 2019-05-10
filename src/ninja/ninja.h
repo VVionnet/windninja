@@ -65,6 +65,7 @@
 
 #include "ninja_conv.h"
 
+#include "blas.h"
 #include "constants.h"
 #include "ascii_grid.h"
 #include "SurfProperties.h"
